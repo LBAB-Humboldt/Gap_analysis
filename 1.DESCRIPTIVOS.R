@@ -61,16 +61,16 @@ G_F_FUNTION=function(x,t){
 
 # definir las rutas de trabajo 
 
-ruta_datos="~/VACIOS DE INFROMACION/GSI"
-ruta_salida= "~/GBIF/VACIOS/DESCRIPTIVA"
+ruta_datos="~/BIOACUSTICA/XENOCANTO_Ago30"
+ruta_salida= "~/BIOACUSTICA/XENOCANTO_Ago30/DESCRIPTIVOS"
 ruta_unidad_espacial="~/VACIOS DE INFROMACION/INFO_GEO"
 
 ##subir base de  datos de registros a analisar
 setwd(ruta_datos)
 
-regcol=read.table("reg_col.txt",header=T)# base de datos original
+regcol=read.csv("para correr Analisis de vacios xenocanto 24.06.2013.csv",header=T)# base de datos original
 
-PUNTOS=read.table("DATOS.txt",header=T) # base de datos depurada
+PUNTOS=read.csv("para correr Analisis de vacios xenocanto 24.06.2013.csv",header=T) # base de datos depurada
 
 
 #Puntos en formato ShapePoints (sobreposisciones)
@@ -142,8 +142,8 @@ points(x=coordinates(PUNTOS2)[,1],y=coordinates(PUNTOS2)[,2], col=rgb(139,0,0,10
 # ####Realizar sobreposiciones  ### ---------------------------------------
 
 OV1=overlay(mpios,PUNTOS2)
-cntr1=as.character(OV1$ID_MUN)
-nom1=as.character(OV1$MPIOS)
+cntr1=as.character(OV1$COD_MUNICI)
+nom1=as.character(OV1$NOMBRE_ENT)
 cntr1.1=as.numeric(cntr1)
 
 OV2=overlay(dptos,PUNTOS2)
@@ -161,7 +161,7 @@ nom4=as.character(OV4$NOMAP)
 
 
 OV5=overlay(CAR,PUNTOS2)
-cntr5=(OV5$ID)
+cntr5=(OV5$IDCAR) # REVISAR
 nom5=as.character(OV5$IDCAR)
 
 OV6=overlay(BIOMAS,PUNTOS2)
@@ -193,7 +193,7 @@ colnames(TABLA3)=c("MUNICIPIO","DEPARTAMENTO","PNN","AP","CAR","BIOMA","COMPLEJO
 
 ## para municipio#  
 
-res_muni=tabla_resumen(3,7,"ID_MUNICIPIO","ID_MUN",mpios,3:4)
+res_muni=tabla_resumen(3,6,"ID_MUNICIPIO","ID_MUN",mpios,3:4)
 mpios=res_muni[[1]]
 res_muni3=data.frame(res_muni[[2]],(res_muni[[3]]),as.character(res_muni[[4]]),res_muni[[5]],stringsAsFactors=FALSE)
 nombres=names(res_muni)
@@ -277,7 +277,7 @@ writePolyShape(CAR,"CAR_CUENTA.shp")
 writePolyShape(BIOMAS,"BIOMA_CUENTA.shp")
 writePolyShape(PARAMO,"PARAMO_CUENTA.shp")
 
-dev.off()
+
 
 
 
@@ -314,7 +314,7 @@ NEAREST=rbind(NEAREST,NEAREST1)
 NIVELES_MUN=res_muni3$ID_MUNICIPIO[res_muni3$por<=0.8] 
 final_sp_mun=NULL
 for (i in NIVELES_MUN){
-  mask=mpios[which(mpios$ID_MUN==i),]
+  mask=mpios[which(mpios$COD_MUNICI==i),]
   
   para_sp=overlay(PUNTOS2,mask)
   filas_sp=which(para_sp>=1)
