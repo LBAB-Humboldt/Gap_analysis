@@ -136,13 +136,13 @@ ESTANDARIZACION=function(x){
 
 ############### CARGAR DATOS ####################
 
-ruta_datos="~/BIOACUSTICA/XENOCANTO_Ago30"
+ruta_datos="~/GBIF4/INTEGRADA"
 ruta_factores= "~/VACIOS DE INFROMACION/INFO_GEO"
 ruta_ambientales="C:/Users/GIC 9/Documents/VACIOS DE INFROMACION/INFO_GEO/AMBIENTALES"
 
 ##subir base de  datos de registros a analisar
 setwd(ruta_datos)
-regcol=read.csv("para correr Analisis de vacios xenocanto 24.06.2013.csv",header=T)# base de datos original
+regcol=read.csv("registros_integrados.csv",header=T)# base de datos original
 
 
 DATOS=read.csv("para correr Analisis de vacios xenocanto 24.06.2013.csv",header=T) # base de datos depurada o DATOS=regcol
@@ -227,7 +227,7 @@ pdf("2.1 INDICE_factores_sesgos.pdf ") ##comienza la grafica tipo pdf
 par(mfrow=c(1,2))
 
 DATOS_s=DATOS
-DATOS_s=unique(DATOS[,5:6]) ##revisar cuales columnas son longitud y latitud
+DATOS_s=unique(DATOS[,4:5]) ##revisar cuales columnas son longitud y latitud
 N=nrow(DATOS_s)
 
 
@@ -441,10 +441,10 @@ raster::writeRaster(GSI_JACK,"INDICE_GSI_JACK.tif", overwrite=TRUE)
 
 # #### METRICA MEJORA VACIOS ----------------------------------------------
 
-
+pdf("5 METRICAS MEJORA.pdf ")
 
 #subira capas anteriores
-ruta_anterior="~/GBIF/VACIOS/GSI"
+ruta_anterior="~/GBIF3/VACIOS"
 setwd(ruta_anterior)
 
 densidad_anterior=raster("INDICE_DENSIDAD_EST.tif")
@@ -460,10 +460,10 @@ par(mfrow=c(1,3))
 mejora_densidad=mask(DENSIDAD-densidad_anterior,colombia)
 mejora_densidad[mejora_densidad<0]=0
 length(which(mejora_densidad[,]>0))/length(which(!is.na(mejora_densidad[,])))
-plot(mask(densidad_anterior,colombia),main="DENSIDAD ANTERIOR");plot(mask(DENSIDAD,colombia), main="DENSIDAD ACTUAL");plot(mejora_densidad,main="MEJORA DENSIDAD",sub="mejora en el 15% del pais")
-# celdas nuevas
+plot(mask(densidad_anterior,colombia),main="DENSIDAD ANTERIOR");plot(mask(DENSIDAD,colombia), main="DENSIDAD ACTUAL");plot(mejora_densidad,main="MEJORA DENSIDAD",sub="mejora en el 22% del pais")
+# celdas nuevas # poner numero de celdas nuevas en el siguiente plot 
 length(which((densidad_anterior-DENSIDAD)[,]<0))
-plot(mask(densidad_anterior,colombia),main="DENSIDAD ANTERIOR");plot(mask(DENSIDAD,colombia), main="DENSIDAD ACTUAL", sub="2960 nuevas localidades");plot(mejora_densidad,main="MEJORA DENSIDAD",sub="mejora en el 15% del pais")
+plot(mask(densidad_anterior,colombia),main="DENSIDAD ANTERIOR");plot(mask(DENSIDAD,colombia), main="DENSIDAD ACTUAL", sub="3922 nuevas localidades");plot(mejora_densidad,main="MEJORA DENSIDAD",sub="mejora en el 22% del pais")
 
 
 mejora_ambiental=mask(AMBIENTAL-ambiental_anterior,colombia)
@@ -488,13 +488,17 @@ min(GSI_JACK[,],na.rm=T); sd(GSI_JACK)
 #cuales mejoraron 
 length(which(mejora_GSIjack[,]<0))
 length(which(GSI_JACK[,]<GSIJack_anterior[,]))/length(which(!is.na(mejora_GSIjack[,])))
-plot(mask(GSIJack_anterior,colombia),main="GSI JACK ANTERIOR");plot(mask(GSI_JACK,colombia), main="GSI JACK ACTUAL");plot(mejora_GSIjack,main="MEJORA GSI JACK",sub="3842 celdas (28.7%) mejoraron")
+plot(mask(GSIJack_anterior,colombia),main="GSI JACK ANTERIOR");plot(mask(GSI_JACK,colombia), main="GSI JACK ACTUAL");plot(mejora_GSIjack,main="MEJORA GSI JACK",sub="3837 celdas (28.7%) mejoraron")
 
 
 mejora_GSIBOOT=mask(GSI_BOOT-GSIBoot_anterior,colombia)
 #mejora_GSIBOOT[mejora_GSIBOOT<0]=0
 plot(mask(GSIBoot_anterior,colombia),main="GSI BOOT ANTERIOR");plot(mask(GSI_BOOT,colombia), main="GSI BOOT ACTUAL");plot(mejora_GSIBOOT,main="MEJORA GSI BOOT")
 
+setwd(ruta_datos)
+writeRaster(mejora_densidad, "mejora_densidad.tif", format="GTiff",overwrite=TRUE)
+writeRaster(mejora_GSIjack, "mejora_GSIjack.tif", format="GTiff",overwrite=TRUE)
 
-writeRaster(mejora_densidad, "mejora_densidad.tif", format="GTiff")
-writeRaster(mejora_GSIjack, "mejora_GSIjack.tif", format="GTiff")
+dev.off()
+
+save.image("~/GBIF4/VACIOS/VACIOS.RData")
