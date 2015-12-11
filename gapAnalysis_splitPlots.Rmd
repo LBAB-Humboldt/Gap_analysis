@@ -1,31 +1,55 @@
 ---
 title: "Gap analysis"
-author: "Ivan Gonzalez"
+author: "Ivan Gonzalez - igonzalez@humboldt.org.co"
 date: "Wednesday, December 02, 2015"
 output: html_document
 ---
 
-This is an code adaptation to develop an spatial gap index analysis sensu [*A methodological framework to quantify the spatial quality of biological databases*](http://www.biodiversity-plants.de/biodivers_ecol/article_meta.php?DOI=10.7809/b-e.00057)
+This is an code adaptation to develop an spatial gap index analysis *sensu* [*A methodological framework to quantify the spatial quality of biological databases*](http://www.biodiversity-plants.de/biodivers_ecol/article_meta.php?DOI=10.7809/b-e.00057)
 
 The follow R code is an adaptation to get a final gap index map.
+For save the results in .PDF an .PNG please uncomment the lines starting with #pdf(, #png(, and #dev.off( in the 'gapAnalysis.Rmd' file
 
 The first step is load information. For this is required to have both a database with biological records and the GIS layers.
 The GIS information can be retived from [climatic folder](https://drive.google.com/open?id=0B3J9l9VrPJBRTzV0Z0w5ZUd0bVE) and [bias factors](https://drive.google.com/open?id=0B3J9l9VrPJBRSjg1b3BEZDhETUE). 
-The datase must be ´data.frame´ class table with the follow columns:
-```{r, echo = TRUE}
+```{r setDir, echo = FALSE}
 setwd('C:/IAvH/VACIOS')
 ```
 
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/', warning=FALSE, message=FALSE)
+```
 
-```{r, cache = TRUE}
+The datase must be ´data.frame´ class table with the follow columns: 
+* Unique identifier
+* species name
+* latitude
+* longitude
+
+We validate the original records in [taxonomical](https://github.com/LBAB-Humboldt/dataDownload) and [geographical](https://github.com/LBAB-Humboldt/GEOGRAPHICAL_VERIFICATIONS) way with available codes. For this reason we also incluide an *acceptedNameUsage* field. In order to replicate this analysis we recommend tho change the column names to showed below instead of changing script if you are not R user.
+
+```{r loadTable, cache = TRUE}
 DATOS <- read.csv('root/DATOS.csv', as.is = TRUE)
 head(DATOS)
 ```
 
-For replicate this excercice consider change the folder paths, check the encoding format and separator values and install libraries dependences.
+Consider change the folder paths, check the encoding format, tables separator values and install libraries dependences due the compatibility sytem. In our case we use the follow parameters:
+```{r sessInfo, echo = FALSE, warning = FALSE}
+library(raster)
+library(maptools)
+library(rgdal)
+library(SPECIES)
+library(classInt)
+sessionInfo()
+```
+
+The subproduct derived from the script could take several minutes to be created. For this reason the most belated objects won't be re-reprocessed if already exist in the outpath folder (**outPlotDir**). If you wan to create it again just remove them from containign folder or set a new outpath. 
+
+
+## 1. Data loading
 
 The initial step is prepare data, paths and functions and load libraries.
-```{r, cache = TRUE}
+```{r loadData, cache = TRUE, warning = FALSE}
 # ---------------------------
 # 0.  Data loading
 # ---------------------------
@@ -36,12 +60,10 @@ library(SPECIES)
 library(classInt)
 
 source('root/GAPfunctions.R')
-outPlotDir <- 'root/plots'
+outPlotDir <- 'root/output'
 ruta_factores <- 'root/GIS/FACTORES'
 ruta_ambientales <- 'root/GIS/AMBIENTALES'
 
-DATOS2 <- DATOS[, c('ID', 'lat', 'lon')]
-coordinates(DATOS2)=~lon+lat
 
 colombia <- readShapePoly(paste0(ruta_factores, "/COLOMBIA.shp"))
 grilla <- raster(paste0(ruta_factores, "/grilla 10k.img"))
@@ -50,56 +72,89 @@ grilla[] <- 1:ncell(grilla)
 en_area <- mask(grilla, colombia)
 
 ## Assign the pixel ID to each coordinate
-celdas <- extract(en_area, DATOS2)
+DATOS2 <- DATOS[, c('ID', 'lat', 'lon')]
+coordinates(DATOS2)=~lon+lat
+celdas <- raster:::extract(en_area, DATOS2)
 DATOS$celdas <- celdas
 
 rm(celdas)
 ```
 
+As result of this step we shold have a path's to bias factor layers, climate layers and output plots and the follow objects:
+1. Original table (DATOS)
+2. Point polygon layer (DATOS2)
+3. Polygon layer (mask) of the region of interest (colombia)
+4. An 'ID' raster of area of interest (grilla)
+5. 'Masked' ID raster with the polygon of area of interest (en_area)
+6. A column indicating the pixel in which each pairs of coordinates over ('celdas' column in DATOS table)
 
-As the article show, ther's tree components to calculet the gap index. The first is the record density and is estimated as the number of records over each pixel:
-```{r, cache = TRUE}
+## 2. Records density
+
+As the article show, there's tree components to calculet the gap index. The first is the record density and is estimated as the number of records over each pixel:
+
+```{r recDensity, cache = TRUE, warning = FALSE}
 # ---------------------------
 # 1.  Records density 
 # ---------------------------
 
 DATOS2$CONT <- 1
-densRegistros <- rasterize(DATOS2, en_area, field = DATOS2$CONT, fun = sum, na.rm = TRUE)
-densRegistros[is.na(densRegistros[])] <- 0
-densRegistros <- mask(densRegistros, colombia, "INDICE_DENSIDAD.tif", overwrite = TRUE)
+if (file.exists('INDICE_DENSIDAD.tif')){
+  densRegistros <- raster('INDICE_DENSIDAD.tif')
+} else {    
+  densRegistros <- rasterize(DATOS2, en_area, field = DATOS2$CONT, fun = sum, na.rm = TRUE)
+  densRegistros[is.na(densRegistros[])] <- 0
+  densRegistros <- mask(densRegistros, colombia, filename = "INDICE_DENSIDAD.tif", overwrite = TRUE)
+}
+
+if (file.exists('localidades.tif')){
+  localidades <- raster('localidades.tif')
+} else {    
+  localidades <- rasterize(DATOS2[, 'CONT'], en_area, fun = function(x, ...) {
+    length(unique(na.omit(x)))
+    }, filename = "localidades.tif")[[2]]
+}
 
 # Let's generate a png file with the density plot
 data(wrld_simpl)
-par(mfrow=c(1,1))
+par(mfrow = c(1,1))
 
-png(file = paste0(outPlotDir, "/1-INDICE_densidad.png")) 
 plot(wrld_simpl, main="UBICACION DE LOS REGISTROS \n BASE DE DATOS INICIAL", col = 'lightyellow')
-points(x=coordinates(DATOS2)[, 1], y=coordinates(DATOS2)[, 2], col = rgb(139, 0, 0, 100, maxColorValue = 255), cex = .1, pch = 20)
+points(x=coordinates(DATOS2)[, 1], y=coordinates(DATOS2)[, 2], col = rgb(0.1, 0.2, 1, 0.01), cex = .1, pch = 20)
 
 plot(colombia, main = "UBICACION DE LOS REGISTROS COLOMBIA")
-plot(DATOS2, add = TRUE, pch = 20)
-dev.off()
+plot(DATOS2, add = TRUE, pch = 20, col = rgb(0.1, 0.2, 1, 0.01), cex = 0.5)
 
-# Let's generate a png file with the density plot. Could take several minutes becouse of table size
-pdf(file = paste0(outPlotDir, "/1.INDICE_densidad.pdf"))
 plot(densRegistros, col = rev(topo.colors(10)), main="DENSIDAD DE  PUNTOS/ 10Km2")
 plot(colombia, add = TRUE)
-density(densRegistros, plot = TRUE)
 persp(densRegistros, xlab = "X coordinates", ylab = "Y coordinates", zlab = "density",
       phi = 35, theta = 20, col = "lightblue", expand = .5, ticktype = "detailed")
-dev.off()
 
-plot(densRegistros, col = rev(topo.colors(10)), main = "DENSIDAD DE  PUNTOS/ 10Km2")
-plot(colombia, add = TRUE)
-
-rm(wrld_simpl)
-
-# Keep 'densRegistros' object
 ```
 
-The second element for the gap index is a bias layer
+In our data we oberve some points with hig-density that make a particular configuration of color ramp. For this we are gona to set the max value as the 95th percentile and observe in better scale the result. Note the diference in legend magnitude.
 
-```{r, cache = TRUE}
+```{r fixDens, cahce = TRUE, warning = FALSE}
+q95 <- quantile(densRegistros, c(.95), na.rm = TRUE) 
+maxVal <- cellStats(densRegistros, 'max')
+densRegistros2 <- reclassify(x = densRegistros, matrix(c(q95, maxVal, q95, 0, 0 , NA), nrow = 2, ncol = 3, byrow = TRUE),
+                             filename = 'density95th.tif', overwrite = TRUE)
+densRegistros2[densRegistros2[] == 0] <- NA
+plot(densRegistros2, col = rev(topo.colors(10)), main = "DENSIDAD DE PUNTOS/10 Km2\n95th")
+plot(colombia, add = TRUE)
+
+```
+
+
+
+## 3. Bias in sampling  
+
+The second element for the gap index is a bias layer. Section 2.
+
+
+The follow code will show the bias as distance function taking some physical layers as reference. The result is just informative due will not take in account for GSI index estimation.
+
+The third plot panel *bias* could be interpreted as a z-test score. In this sense values above 1.64 or bellow -1.64 indicate statistical diference in that category.
+```{r biasData, cache = TRUE, warning = FALSE, warning = FALSE, message = FALSE}
 # ---------------------------
 # 2.  Bias in sampling  
 # ---------------------------
@@ -107,48 +162,60 @@ DATOS_s <- unique(DATOS[, c('lat', 'lon')])
 N <- nrow(DATOS_s)
 
 # ---------------------------
-# 2.2. Bias by phisical factors
+# 2.1 Bias by phisical factors
 # ---------------------------
-
 AP <- readOGR(ruta_factores, "protectedAreas")
 urbano <- readOGR(ruta_factores, "urban")
 rios <- readOGR(ruta_factores, "riversMain")
 vias <- readOGR(ruta_factores, "roads")
 
-pdf(file = paste0(outPlotDir, "/2.1 INDICE_factores_sesgos.pdf "))
-par(mfrow = c(1, 2))
 sesgo_ap <- BIAS(biasLayer = AP, rasterMask = grilla, layerName = "AREA_PROTEGIDA",  outDir = outPlotDir)
 sesgo_rios <- BIAS(biasLayer = rios, rasterMask = grilla, layerName = "RIOS",  outDir = outPlotDir)
 sesgo_vias <- BIAS(biasLayer = vias, rasterMask = grilla,layerName = 'VIAS', outDir = outPlotDir)
 sesgo_urbano <- BIAS(biasLayer = urbano, rasterMask = grilla, layerName = "CASCOS_URBANOS", outDir = outPlotDir)
-dev.off()
 
 # Remove extra files and keep sesgo_ap, sesgo_rios, sesgo_vias, sesgo_urbano
 rm(AP, urbano, rios, vias, DATOS_s, sesgo_ap, sesgo_rios, sesgo_vias, sesgo_urbano, grilla)
 
+```
+
+
+The follow code will show the bias usi climatic layers, slope and elevation as reference. The main result is the diference between the observed values for each layer given the coordinates *vs.* a random values. A kolmogorov test is used.
+
+```{r climeData, cache = TRUE, warning = FALSE}
 # ---------------------------
-# 2.2. Bias by environment
+# 2.2 Bias by environment
 # ---------------------------
 
 # 2.2.1 Compare distributions
 ## Compare environment all distribution values and sampled values by kolmogorov and Kullback-Leibler divergence
 
 ambientales <- stack(paste0(ruta_ambientales, '/', c(paste0("bio_", 1:19), "alt", "slope")))
-envVarNames <- c("TEMPERATURA MEDIA ANUAL", "MEDIA RANGO DIURNO", "ISOTERMALIDAD", "ESTACIONALIDAD TEMPERATURA",
-             "MAX T MES MAS CALIDO", "MIN T MES FRIO", "RANGO ANUAL T", "T MEDIA  DEL CUARTO HUMEDO", 
-             "T MEDIA DEL CUARTO SECO", "T MEDIA DEL CUARTO CALIDO", "T M DEL CUARTO FRIO", "PRECIPITACI?N ANUAL", 
-             "PP MES MAS HUMEDO", "PP MES MAS SECO", "PP ESTACIONAL", "PP CUARTO HUMEDO", "PP CUARTO SECO",
-             "PP CUARTO CALIDO", "PP CUARTO FRIO", "ALTURA", "PENDIENTE")
+envVarNames <- c("TEMPERATURA-MEDIA-ANUAL", "MEDIA-RANGO-DIURNO", "ISOTERMALIDAD", "ESTACIONALIDAD-TEMPERATURA",
+             "MAX-T-MES-MAS-CALIDO", "MIN-T-MES-FRIO", "RANGO-ANUAL-T", "T-MEDIA-DEL-CUARTO-HUMEDO", 
+             "T-MEDIA-DEL-CUARTO-SECO", "T-MEDIA-DEL-CUARTO-CALIDO", "T-M-DEL-CUARTO-FRIO", "PRECIPITACION-ANUAL", 
+             "PP-MES-MAS-HUMEDO", "PP-MES-MAS-SECO", "PP-ESTACIONAL", "PP-CUARTO-HUMEDO", "PP-CUARTO-SECO",
+             "PP-CUARTO-CALIDO", "PP-CUARTO-FRIO", "ALTURA", "PENDIENTE")
+
 
 # Generate data.frame with all values
-VARIABLES <- ambientales[1:ncell(ambientales)]
-VARIABLES <- na.omit(VARIABLES) 
+if (file.exists(paste0(outPlotDir, '/variablesDF.csv'))){
+  VARIABLES <- read.csv(paste0(outPlotDir, '/variablesDF.csv'))
+} else {    
+  VARIABLES <- ambientales[1:ncell(ambientales)]
+  VARIABLES <- na.omit(VARIABLES) 
+  write.csv(VARIABLES, paste0(outPlotDir, '/variablesDF.csv'), row.names = FALSE)
+}
 
 # Generate data.frame with observed values
-MUESTREO <- extract(ambientales, DATOS2)
-MUESTREO <- na.omit(MUESTREO)
+if (file.exists(paste0(outPlotDir, '/samplingDF.csv'))){
+  MUESTREO <- read.csv(paste0(outPlotDir, '/samplingDF.csv'))
+} else {    
+  MUESTREO <- extract(ambientales, DATOS2)
+  MUESTREO <- na.omit(MUESTREO)
+  write.csv(MUESTREO, paste0(outPlotDir, '/samplingDF.csv'), row.names = FALSE)
+}
 
-pdf(file = paste0(outPlotDir, "/2.2 INDICE_COMPARACION_VARIABLES.pdf ")) 
 par(mfrow = c(4, 3))
 
 numPredictors <- dim(ambientales)[3]
@@ -160,7 +227,7 @@ for (i in 1:numPredictors){
   sample.Var.i <- sample(VARIABLES[, i], nrow(MUESTREO), replace = T)
 
   # Compare both random and sampled vector
-  COMPARACION <- ks.test(sample.Var.i, MUESTREO[, i]) 
+  COMPARACION <- ks.test(sample.Var.i, MUESTREO[, i], ) 
 
   VAR <- envVarNames[i]
   media_var <- mean(VARIABLES[, i])
@@ -172,12 +239,11 @@ for (i in 1:numPredictors){
   D <- COMPARACION$statistic
   Pval <- COMPARACION$p.value
   if (Pval <= 0.05){ 
-    DESICION <- "Distribuciones diferentes"
+    DESICION <- "Equal distributions"
   } else {
-    DESICION <- "Distribuciones iguales"
+    DESICION <- "Diferent distributions"
   }
   Nceldas <- ncell(VARIABLES[, i])
-  
   PI <- as.data.frame(table(MUESTREO[, i])/nrow(MUESTREO))  
   QTOTAL <- as.data.frame(table(VARIABLES[, i])/Nceldas)
   QI <- QTOTAL[match(PI[, 1], QTOTAL[, 1]), ]
@@ -197,40 +263,36 @@ for (i in 1:numPredictors){
   plot(density(VARIABLES[,i]), col='black', xlab = '', main=VAR, xlim=c(minx, maxx), ylim=c(miny,maxy),
        sub = bquote(p(H[a]):  ~ .(Pval)))  
   lines(density(MUESTREO[,i]), col= "red", main=VAR)
+  legend('topright', lty = c(1, 1), col = c('black', 'red'), legend = c('All country', 'Sampled'))
   RESUMEN <- cbind(VAR, media_var, media_DATOS, des_var, des_DATOS, coefvar_var, coefvar_DATOS,
                    D, Pval, DESICION)
   RESULT <- rbind(RESULT, RESUMEN)
 }
 
 # Write table with summary for each variable
-write.table(RESULT, "bondad ajuste variables.txt", sep="\t",col.names=T)
+write.csv(RESULT, "goodness_fit.csv", row.names = FALSE)
 
 # Remove extra objects
 rm(MUESTREO, VARIABLES, RESULT, RESUMEN, VAR, media_var, media_DATOS, des_var, des_DATOS, coefvar_var, coefvar_DATOS,
    D, Pval, DESICION, DENSI_VAR, DENSI_MUES, sample.Var.i, Q, QI, QTOTAL)
 
-dev.off()
+```
+The climate bias layer will be estiated using `BIAS()` function for each variable. Finally all **bias** layers are sumed.
 
+```{r biasClimate, cache = TRUE, warning = FALSE}
 # 2.2.2. Environmental bias layer
 
-pdf(file = paste0(outPlotDir, "/2.3 INDICE_sesgos_ambientales.pdf ")) ##comienza la grafica tipo pdf
-par(mfrow=c(1,2))
+par(mfrow = c(1,2))
 d <- ambientales[[1]] * 0
 resultados <- NULL
-
-localidades <- rasterize(DATOS2, en_area, fun = function(x, ...) {length(unique(na.omit(x)))})
-recla <- as.matrix(cbind(1, localidades@data@max, 1))
-localidades <- reclassify(localidades, recla)
 sesgosDF <- NULL
 for (k in 1:numPredictors){
-  ses_amb <- BIAS(biasLayer = ambientales[[k]], layerName = names(ambientales)[k], outDir = outPlotDir, doplot = TRUE)
+  ses_amb <- BIAS(biasLayer = ambientales[[k]], layerName = envVarNames[k], outDir = outPlotDir, doplot = TRUE)
   d <- sum(d, ses_amb$biasLayer, na.rm = TRUE)
   sesgosDF <- cbind(sesgosDF, ses_amb$biasLayer[])
-  resultados <- cbind(resultados, ses_amb$sesgos)
+  resultados <- cbind(resultados, ses_amb$biasValues)
 }
 colnames(sesgosDF) <- names(resultados) <- envVarNames
-
-dev.off()
 
 pcaLayer <- raster(paste0(ruta_ambientales, '/pcaLayer.tif'))
 ses_pca <- BIAS(biasLayer = pcaLayer, layerName = 'pca', outDir = outPlotDir, doplot = TRUE)
@@ -239,12 +301,13 @@ d2 <- ses_pca$biasLayer
 write.table(resultados, "sesgos_ambientales.txt", sep="\t", col.names = TRUE)
 write.table(sesgosDF, "sesgos_tabla_Capas.txt", sep="\t", col.names = TRUE)
 writeRaster(d, "INDICE_AMBIENTAL.tif", overwrite = TRUE)
-
 ```
+
+## 4. Data base completness
 
 The final component is the species completness. For this case we are gonna to use Jackknife and bootstrap estimates for two databse columns: original species and accepted species name.
 
-```{r, cache = TRUE}
+```{r richness, cache = TRUE, warning = FALSE}
 # ---------------------------
 # 3. Data base completness
 # ---------------------------
@@ -260,7 +323,7 @@ treshold <- 0
 spListByCell <- spListByCell[spListByCell$celdas %in% names(which(freqTable >= treshold)), ]
 spListByCellHQ <- spListByCellHQ[spListByCellHQ$celdas %in% names(which(freqTableHQ >= treshold)), ]
 
-estimateS <- richEst(spListByCell$species, spListByCell$celdas)
+estimateS <- richEst(sppList = spListByCell$species, indexID = spListByCell$celdas)
 estimateSHQ <- richEst(spListByCellHQ$acceptedNameUsage, spListByCellHQ$celdas)
 
 rm(spListByCell, spListByCellHQ)
@@ -279,19 +342,19 @@ compRichJack[as.numeric(rownames(estimateS))] <- estimateS$Sobs/estimateS$JNhat
 compRichJack[compRichJack[] >= 1] <- 1
 compRichBoot[compRichBoot[] >= 1] <- 1
 
-pdf(file = paste0(outPlotDir, "/3 INDICE_COMPLEMENTARIEDAD.pdf ")) 
 par(mfrow=c(2, 2)) 
-
 plot(richBoot, main = paste('Bootstrap:', nrow(estimateS)))
+plot(colombia, add = TRUE, border = 'darkgrey')
 plot(richJack, main = paste('Jackknife:', nrow(estimateS)))
+plot(colombia, add = TRUE, border = 'darkgrey')
+plot(richBootHQ, main = paste('BootstrapHQ:', nrow(estimateSHQ), 'cells'))
+plot(colombia, add = TRUE, border = 'darkgrey')
+plot(richJackHQ, main = paste('JackknifeHQ:', nrow(estimateSHQ), 'cells'))
+plot(colombia, add = TRUE, border = 'darkgrey')
 
-plot(richBootHQ, main = paste('BootstrapHQ:', nrow(estimateSHQ)))
-plot(richJackHQ, main = paste('JackknifeHQ:', nrow(estimateSHQ)))
-
-
-plot(compRichBoot, main = paste('Bootstrap:', nrow(estimateS)))
+plot(compRichBoot, main = paste('Bootstrap:', nrow(estimateS), 'cells'))
 plot(colombia, add = TRUE)
-plot(compRichJack, main = paste('Jackknife:', nrow(estimateS)))
+plot(compRichJack, main = paste('Jackknife:', nrow(estimateS), 'cells'))
 plot(colombia, add = TRUE)
 
 richBootVals <- compRichBoot[!is.na(compRichBoot[]) & compRichBoot[] != 0]
@@ -301,16 +364,16 @@ lines(density(richBootVals), main = 'Density Bootstrap')
 
 hist(richJackVals, main = 'Density Jackknife', freq = FALSE, xlim = c(0, 1.2))
 lines(density(richJackVals), main = 'Density Jackknife')
-dev.off()
 
 writeRaster(compRichBoot, "INDICE_COMPLEMENTARIEDAD_JACK.tif", overwrite=TRUE)
 writeRaster(compRichJack, "INDICE_COMPLEMENTARIEDAD_BOOTS.tif", overwrite=TRUE)
 ```
 
+## 5. GSI/Gap selection index
 
 Finally sum the three standardized components using the article formula
 
-```{r, cache = TRUE}
+```{r GSI, cache = TRUE, warning = FALSE}
 # ---------------------------
 # 4. GSI / Gap selection index
 # ---------------------------
@@ -319,51 +382,50 @@ Finally sum the three standardized components using the article formula
 
 DENSIDAD <- normalize01(densRegistros)
 AMBIENTAL <- normalize01(d)
-COMPLEMENTARIEDAD_BOOT <- normalize01(compRichBoot)
-COMPLEMENTARIEDAD_JACK <- normalize01(compRichJack)
+COMP_BOOT <- normalize01(compRichBoot)
+COMP_JACK <- normalize01(compRichJack)
+COMP_JACK[is.na(COMP_JACK[])] <- 0
 
 writeRaster(DENSIDAD,"INDICE_DENSIDAD_EST.tif", overwrite=TRUE)
 writeRaster(AMBIENTAL,"INDICE_AMBIENTAL_EST.tif", overwrite=TRUE)
-writeRaster(COMPLEMENTARIEDAD_BOOT,"INDICE_COMPLEMENTARIEDAD_BOOT_EST.tif", overwrite=TRUE)
-writeRaster(COMPLEMENTARIEDAD_JACK,"INDICE_COMPLEMENTARIEDAD_JACK_EST.tif", overwrite=TRUE)
+writeRaster(COMP_BOOT,"INDICE_COMPLEMENTARIEDAD_BOOT_EST.tif", overwrite=TRUE)
+writeRaster(COMP_JACK,"INDICE_COMPLEMENTARIEDAD_JACK_EST.tif", overwrite=TRUE)
 
 # Plot 
 ## Records ubication
-png(file = paste0(outPlotDir, "/4 INDICE_final_ubicacion_registros.png")) ##comienza la grafica tipo pdf 
+
 par(mfrow = c(1, 1))
 plot(colombia, main = "UBICACION DE \n LOS REGISTROS")
 plot(DATOS2, add = T, pch = 20, cex = 0.1, col = rgb(0.1, 0.2, 1, 0.01))
-dev.off()
-
-pdf(file = paste0(outPlotDir, "/4 INDICE_final.pdf ")) ##comienza la grafica tipo pdf 
 
 ## Records density
 par(mfrow=c(1, 2))
-plot(densRegistros, main = 'Records density')
-plot(colombia, add = TRUE)
-plot(DENSIDAD, main = 'Records density')
-plot(colombia, add = TRUE)
+plot(densRegistros, main = 'Records density', zlim = c(0, quantile(densRegistros[], .95, na.rm = TRUE)))
+plot(colombia, add = TRUE, border = 'darkgrey')
+plot(DENSIDAD, main = 'Records density', zlim = c(0, quantile(DENSIDAD[], .95, na.rm = TRUE)))
+plot(colombia, add = TRUE, border = 'darkgrey')
 
 ## Environmental bias
-par(mfrow=c(1, 2))
+par(mfrow = c(1, 2))
 plot(mask(d, colombia), main = 'd Index')
 plot(colombia, add = TRUE)
 plot(mask(AMBIENTAL, colombia), main = 'd Index \n Normalized')
 plot(colombia, add = TRUE)
 
-par(mfrow=c(2, 2))
-dValsNoNA <- d[!is.na(d[])]
+par(mfrow = c(1, 2))
+# dValsNoNA <- d[!is.na(d[])]
 dValsNoNANoZeros <- d[!is.na(d[]) & d[] != 0]
-hist(dValsNoNA, main = 'd Index no NA no 0')
-hist(dValsNoNANoZeros, main = 'd Index \n no NA no 0')
+# hist(dValsNoNA, main = 'd Index no NA no 0')
+hist(dValsNoNANoZeros, main = 'd Index')
 
-AMBValsNoNA <- AMBIENTAL[!is.na(AMBIENTAL[])]
+#AMBValsNoNA <- AMBIENTAL[!is.na(AMBIENTAL[])]
 AMBValsNoNANoZeros <- AMBIENTAL[!is.na(AMBIENTAL[]) & AMBIENTAL[] != 0]
-hist(AMBValsNoNA, main = 'Ambiental no NA')
-hist(AMBValsNoNANoZeros, main = 'Ambiental\nno NA no 0')
+#hist(AMBValsNoNA, main = 'Ambiental no NA')
+hist(AMBValsNoNANoZeros, main = 'Ambiental')
 
 ## Completness
 par(mfrow = c(1, 2))
+compRichBoot[compRichBoot[] == 0] <- NA
 plot(compRichBoot, main = 'Bootstrap')
 plot(colombia, add = TRUE)
 plot(compRichJack, main = 'Jackknife')
@@ -381,11 +443,9 @@ JacValsNoNANoZeros <- compRichJack[!is.na(compRichJack[]) & compRichJack[] != 0]
 hist(JacValsNoNA, main = 'Jackknife no NA no 0')
 hist(JacValsNoNANoZeros, main = 'Jackknife no NA no 0')
 
-
 #  GSI / GAP INDEX
-
-GSI_BOOT <- (3 - DENSIDAD - AMBIENTAL - COMPLEMENTARIEDAD_BOOT)/3
-GSI_JACK <- (3 - DENSIDAD - AMBIENTAL - COMPLEMENTARIEDAD_JACK)/3
+GSI_BOOT <- (3 - DENSIDAD - AMBIENTAL - COMP_BOOT)/3
+GSI_JACK <- (3 - DENSIDAD - AMBIENTAL - COMP_JACK)/3
 
 par(mfrow = c(1, 2))
 
@@ -399,14 +459,18 @@ densJack <- density(GSI_JACK, main = 'Jackk', xlim = c(0, 1))
 densBoot <- density(GSI_BOOT, main = 'Boot', xlim = c(0, 1))
 
 par(mfrow = c(1, 1))
-plot(densJack, main = 'GSI values', col = 'blue', ylim = c(0, 10))
-lines(densBoot, col = 'red')
+plot(densJack, main = 'GSI values', col = 'blue', ylim = c(0, 10), lty = 1)
+lines(densBoot, col = 'red', lty = 2)
 legend('topleft', legend = c('Jackknife', 'Bootstrap'), 
-       lty = c(1, 1), lwd = c(1, 1), col = c('blue', 2))
-
-dev.off()
+       lty = c(1, 2), lwd = c(1, 1), col = c('blue', 2))
 
 writeRaster(GSI_BOOT,"INDICE_GSI_BOOT.tif", overwrite = TRUE)
 writeRaster(GSI_JACK,"INDICE_GSI_JACK.tif", overwrite = TRUE)
 
+par(mfrow = c(1, 2))
+plot(GSI_BOOT, main = 'GAP SELCTION INDEX (BOOT)', zlim = c(0, 1))
+plot(colombia, add = TRUE)
+
+plot(GSI_JACK, main = 'GAP SELCTION INDEX (JACK)', zlim = c(0, 1))
+plot(colombia, add = TRUE)
 ```
