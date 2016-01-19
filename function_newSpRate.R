@@ -2,10 +2,14 @@ newSpRate <- function(data, layer = NULL, layerField = NULL,  simulations = 1000
   if (outDir != FALSE) dir.create(outDir, recursive = TRUE)
   level <- na.omit(unique(data$locality))
   summaryByLevel <- NULL
-  i <- 1
+  i <- 17
   for (i in 1:length(level)){
     data.i <- data$species[which(data$locality == level[i])]
     uniqueSp <- length(unique(data.i))
+    if (uniqueSp <= 1) {
+      summaryByLevel <- rbind(summaryByLevel, c(level[i], 0, 0, 0, uniqueSp, 0, 0))
+      next
+    }
     propSp <- table(data.i)/length(data.i)
     shannon <- -sum(propSp * log(propSp))
     simpson <- sum(propSp ^ 2)
@@ -29,7 +33,8 @@ newSpRate <- function(data, layer = NULL, layerField = NULL,  simulations = 1000
     coefRarefOrigin <- summary(lm(raref ~ 0 + index, data = dfRaref))$coefficients[1, 1]
     #     boxplot(data.frame(coef = sim.i[, 1]))
     #     abline(h = coefRaref)
-    summaryByLevel <- rbind(summaryByLevel, c(level[i], coefRaref, coefRarefOrigin, mean(sim.i[, 1]),uniqueSp, shannon, simpson))
+    summaryByLevel <- rbind(summaryByLevel, c(level[i], coefRaref, coefRarefOrigin,
+                                              mean(sim.i[, 1]),uniqueSp, shannon, simpson, length(data.i)))
     
     if (outDir != FALSE){
       tryCatch(write.csv(raref, paste0(outDir,'/rarefCurve_', level[i], '.csv'), row.names = FALSE))
@@ -38,14 +43,17 @@ newSpRate <- function(data, layer = NULL, layerField = NULL,  simulations = 1000
     }
     cat(i, '-', length(level), ' || ')
   }
-  colnames(summaryByLevel) <- c('level', 'slopeMeanCurve', 'slopeMeanCurveOrig', 'meanSlopeCurves', 'sObs', 'shannon', 'simpson')
+  colnames(summaryByLevel) <- c('level', 'slopeMeanCurve', 'slopeMeanCurveOrig', 'meanSlopeCurves', 'sObs', 'shannon', 'simpson', 'nObs')
   
   if(!is.null(layer) & !is.null(layerField)){
+    require(sp)
     layer@data$sortID <- 1:nrow(layer@data)
     layer@data <- merge(layer@data, as.data.frame(summaryByLevel), by.x = layerField, by.y = 'level', all.x = TRUE, all.y = FALSE)
-    layer@data <- layer@data[order(layer@data$sortID), ]
-    writeOGR(layer, dsn = outDir, layer = 'layer')
+    layer@data <- layer@data[order(layer@data$sortID), ]  
+    layer@data$round <- round(as.numeric(as.character(layer@data$slopeMeanCurve)), 2)
+    writeOGR(layer, dsn = outDir, layer = 'layer', driver = 'ESRI Shapefile', overwrite_layer = TRUE)
+    return(list(summaryByLevel, layer))
+  }  else {
+    return(list(summaryByLevel))
   }
-  
-  return(summaryByLevel)
 }
